@@ -1,0 +1,32 @@
+# Global configuration for the RL Trading System
+
+# System paths
+paths:
+  data: "./data"
+  models: "./models"
+  logs: "./logs"
+
+# MT5 Connection parameters
+mt5:
+  server: "MetaQuotes-Demo"
+  login: 12345678  # Replace with your login
+  password: "password"  # Replace with your password
+  timeout: 60000  # Connection timeout in milliseconds
+
+# General trading parameters
+trading:
+  symbols: ["EURUSD", "GBPUSD", "USDJPY"]
+  timeframes: ["M5", "M15", "H1"]
+  default_timeframe: "M15"
+  default_symbol: "EURUSD"
+  
+# Data parameters
+data:
+  history_days: 365  # Amount of historical data to load (days)
+  feature_window: 20  # Window size for feature calculation
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "trading_system.log"

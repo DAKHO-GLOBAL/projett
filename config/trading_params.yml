@@ -1,0 +1,36 @@
+# Trading and risk management parameters
+
+# Position sizing
+position_sizing:
+  type: "percent_risk"  # Options: fixed_lot, percent_equity, percent_risk
+  risk_per_trade: 0.01  # 1% risk per trade
+  max_risk_per_day: 0.05  # 5% max risk per day
+  max_positions: 5  # Maximum number of open positions
+  
+# Stop loss and take profit
+stop_loss:
+  type: "atr"  # Options: fixed_pips, percent, atr, support_resistance
+  atr_multiplier: 2.0  # For ATR-based stops
+  fixed_pips: 50  # For fixed pip-based stops
+  percent: 0.01  # For percentage-based stops
+
+take_profit:
+  type: "risk_reward"  # Options: fixed_pips, percent, risk_reward
+  risk_reward_ratio: 2.0  # Risk-reward ratio for take profit
+  fixed_pips: 100  # For fixed pip-based take profit
+  percent: 0.02  # For percentage-based take profit
+
+# Trade management
+trade_management:
+  use_trailing_stop: true
+  trailing_activation: 0.5  # Activation threshold as percentage of take profit
+  partial_exits: true
+  partial_exit_levels: [0.3, 0.6]  # Exit 30% at first level, 30% at second level
+  partial_exit_amounts: [0.3, 0.3]  # Percentage of position to exit at each level
+
+# Trading hours (in UTC)
+trading_hours:
+  enabled: true
+  start_time: "08:00"
+  end_time: "16:00"
+  trade_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
