@@ -8,17 +8,17 @@ paths:
 
 # MT5 Connection parameters
 mt5:
-  server: "MetaQuotes-Demo"
-  login: 12345678  # Replace with your login
-  password: "password"  # Replace with your password
+  server: "Deriv-Demo"
+  login: 40616173  # Replace with your login
+  password: "Th@70366636"  # Replace with your password
   timeout: 60000  # Connection timeout in milliseconds
 
 # General trading parameters
 trading:
-  symbols: ["EURUSD", "GBPUSD", "USDJPY"]
-  timeframes: ["M5", "M15", "H1"]
-  default_timeframe: "M15"
-  default_symbol: "EURUSD"
+  symbols: ["EURUSD", "GBPUSD", "USDJPY","XAUUSD"]
+  timeframes: ["M1","M5", "M15", "H1"]
+  default_timeframe: "M5"
+  default_symbol: "XAUUSD"
   
 # Data parameters
 data:

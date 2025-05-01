@@ -127,17 +127,28 @@ class BaseAgent(ABC):
             new_metrics: Dictionary with new metric values to add
         """
         for key, value in new_metrics.items():
-            if key in self.metrics:
-                if isinstance(value, list):
-                    self.metrics[key].extend(value)
+            if key == 'learning_steps':
+                # Handle learning_steps as a scalar value, not a list
+                self.metrics['learning_steps'] = value
+            elif key in self.metrics:
+                if isinstance(self.metrics[key], list):
+                    # If the metric is already a list, append or extend
+                    if isinstance(value, list):
+                        self.metrics[key].extend(value)
+                    else:
+                        self.metrics[key].append(value)
                 else:
-                    self.metrics[key].append(value)
+                    # Convert to list if current value is not a list
+                    if isinstance(value, list):
+                        self.metrics[key] = [self.metrics[key]] + value
+                    else:
+                        self.metrics[key] = [self.metrics[key], value]
             else:
-                self.metrics[key] = [value] if not isinstance(value, list) else value
-        
-        # Update learning steps
-        if 'learning_steps' in new_metrics:
-            self.metrics['learning_steps'] = new_metrics['learning_steps']
+                # Initialize new metric
+                if isinstance(value, list):
+                    self.metrics[key] = value
+                else:
+                    self.metrics[key] = [value]
     
     def get_metrics(self) -> Dict:
         """

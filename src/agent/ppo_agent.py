@@ -319,7 +319,7 @@ class PPOAgent(BaseAgent):
         self.learning_steps = 0
         
         logger.info(f"Initialized PPO agent with state_dim={state_dim}, action_dim={action_dim}")
-    
+
     def select_action(self, state: Any, evaluate: bool = False) -> np.ndarray:
         """
         Select an action based on the current state.
@@ -337,9 +337,9 @@ class PPOAgent(BaseAgent):
             market_state = torch.FloatTensor(state['market']).to(self.device)
             account_state = torch.FloatTensor(state['account']).to(self.device)
             
-            # Flatten the tensors
-            market_flat = market_state.view(1, -1)
-            account_flat = account_state.view(1, -1)
+            # Flatten the tensors - CORRECTION: Changed view() to reshape()
+            market_flat = market_state.reshape(1, -1)
+            account_flat = account_state.reshape(1, -1)
             
             # Concatenate them
             state_tensor = torch.cat([market_flat, account_flat], dim=1)
@@ -366,7 +366,7 @@ class PPOAgent(BaseAgent):
         value = self.critic(state_tensor).item()
         
         return action, action_logprob, value
-    
+   
     def store_transition(
         self,
         state: Any,

@@ -283,42 +283,49 @@ class FeatureGenerator:
             pd.DataFrame: DataFrame with added volume indicators
         """
         # Check if volume data is available
-        if 'volume' not in df.columns or df['volume'].sum() == 0:
+        if 'volume' in df.columns and df['volume'].sum() > 0:
+            volume_column = 'volume'
+        # Ensuite vérifier tick_volume si volume n'est pas disponible
+        elif 'tick_volume' in df.columns and df['tick_volume'].sum() > 0:
+            # Create a copy of tick_volume as volume for indicators
+            df['volume_for_indicators'] = df['tick_volume']
+            volume_column = 'volume_for_indicators'
+        else:
             logger.warning("Volume data not available or all zeros, skipping volume indicators")
             return df
         
         # On-Balance Volume (OBV)
         df['obv'] = ta.volume.OnBalanceVolumeIndicator(
             close=df['close'],
-            volume=df['volume']
+            volume=df[volume_column]
         ).on_balance_volume()
         
         # Volume Weighted Average Price (VWAP)
         # This is typically calculated intraday, so we'll reset it each day
         # For simplicity, we'll use a rolling window approach here
-        df['vwap_20'] = (df['volume'] * (df['high'] + df['low'] + df['close']) / 3).rolling(20).sum() / df['volume'].rolling(20).sum()
+        df['vwap_20'] = (df[volume_column] * (df['high'] + df['low'] + df['close']) / 3).rolling(20).sum() / df[volume_column].rolling(20).sum()
         
         # Accumulation/Distribution Line
-        df['adl'] = ta.volume.AccumulationDistributionIndicator(
+        df['adl'] = ta.volume.AccDistIndexIndicator(
             high=df['high'],
             low=df['low'],
             close=df['close'],
-            volume=df['volume']
-        ).acc_dist()
+            volume=df[volume_column]
+        ).acc_dist_index()
         
         # Chaikin Money Flow
         df['cmf'] = ta.volume.ChaikinMoneyFlowIndicator(
             high=df['high'],
             low=df['low'],
             close=df['close'],
-            volume=df['volume'],
+            volume=df[volume_column],
             window=20
         ).chaikin_money_flow()
         
         # Force Index
         df['fi_13'] = ta.volume.ForceIndexIndicator(
             close=df['close'],
-            volume=df['volume'],
+            volume=df[volume_column],
             window=13
         ).force_index()
         
@@ -327,13 +334,13 @@ class FeatureGenerator:
             high=df['high'],
             low=df['low'],
             close=df['close'],
-            volume=df['volume'],
+            volume=df[volume_column],
             window=14
         ).money_flow_index()
         
         # Volume Oscillator (VO) - Difference between fast and slow EMA of volume
-        df['volume_ema_5'] = ta.trend.ema_indicator(df['volume'], window=5)
-        df['volume_ema_10'] = ta.trend.ema_indicator(df['volume'], window=10)
+        df['volume_ema_5'] = ta.trend.ema_indicator(df[volume_column], window=5)
+        df['volume_ema_10'] = ta.trend.ema_indicator(df[volume_column], window=10)
         df['volume_oscillator'] = (df['volume_ema_5'] - df['volume_ema_10']) / df['volume_ema_10'] * 100
         
         return df

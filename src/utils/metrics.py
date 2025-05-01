@@ -7,15 +7,32 @@ and other risk/return metrics.
 """
 
 import logging
+import os
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from src.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+def load_config(config_path):
+    """Load configuration from YAML file."""
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
+
+#config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config'))
+config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'config'))
+
+config = {}
+
+# Load main config
+config_path = os.path.join(config_dir, 'config.yml')
+main_config = load_config(config_path)
+config.update(main_config)
 def calculate_sharpe_ratio(
     returns: np.ndarray,
     risk_free_rate: float = 0.0,
@@ -322,7 +339,16 @@ def calculate_comprehensive_metrics(
     
     # Annualized return (assuming daily returns)
     if len(returns) > 0:
-        annualization_factor = 252  # trading days in a year
+        timeframe= config['trading']['default_timeframe']
+        #annualization_factor = 252  # trading days in a year
+        if timeframe == "M1":
+            annualization_factor = 252 * 24 * 60  # jours × heures × minutes par heure
+        elif timeframe == "M5":
+            annualization_factor = 252 * 24 * 12  # jours × heures × périodes de 5 min par heure
+        elif timeframe == "M15":
+            annualization_factor = 252 * 24 * 4   # jours × heures × périodes de 15 min par heure
+        elif timeframe == "H1":
+            annualization_factor = 252 * 24       # jours × heures par jour
         metrics['annualized_return'] = np.mean(returns) * annualization_factor * 100  # as percentage
     else:
         metrics['annualized_return'] = 0.0
