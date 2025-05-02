@@ -142,7 +142,7 @@ def main():
             window_size=window_size,
             symbol=symbol,
             timeframe=timeframe,
-            reward_type='sharpe',
+            reward_type='trading_focused',  # Utilisez la nouvelle fonction de récompense
             features=feature_columns
         )
         
@@ -154,7 +154,7 @@ def main():
             window_size=window_size,
             symbol=symbol,
             timeframe=timeframe,
-            reward_type='sharpe',
+            reward_type='trading_focused',
             features=feature_columns
         )
         

@@ -36,6 +36,7 @@ class FeatureGenerator:
             'volatility': True,
             'volume': True,
             'custom': True,
+            'custum_gold':True,
         }
         
         # Update feature groups from config if provided
@@ -75,6 +76,8 @@ class FeatureGenerator:
                 df = self.add_volume_indicators(df)
             elif group == 'custom':
                 df = self.add_custom_features(df)
+            elif group == 'custum_gold':
+                df = self.add_gold_specific_features(df)
         
         # Remove rows with NaN values created by indicators that need historical data
         df_cleaned = df.dropna()
@@ -428,5 +431,56 @@ class FeatureGenerator:
             # Session overlap periods (typically higher volatility)
             df['asia_europe_overlap'] = ((df['hour'] >= 7) & (df['hour'] < 9)).astype(int)
             df['europe_us_overlap'] = ((df['hour'] >= 13) & (df['hour'] < 16)).astype(int)
+        
+        return df
+    
+    # Dans src/data/feature_generator.py, ajoutez cette méthode
+
+    def add_gold_specific_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add gold-specific features to the DataFrame.
+        
+        Args:
+            df: DataFrame with OHLCV price data
+            
+        Returns:
+            pd.DataFrame: DataFrame with added gold-specific features
+        """
+        # Daily ranges - gold tends to respect daily ranges
+        df['day_high'] = df['high'].resample('D').transform('max')
+        df['day_low'] = df['low'].resample('D').transform('min')
+        df['day_range'] = df['day_high'] - df['day_low']
+        df['price_in_range'] = (df['close'] - df['day_low']) / df['day_range']
+        
+        # Gold volatility features
+        df['gold_volatility'] = df['high'] - df['low']
+        df['gold_volatility_ma'] = df['gold_volatility'].rolling(20).mean()
+        df['volatility_ratio'] = df['gold_volatility'] / df['gold_volatility_ma']
+        
+        # Gold tends to be sensitive to round numbers
+        round_levels = np.floor(df['close'] / 50) * 50  # Round to nearest $50
+        df['distance_to_round'] = df['close'] - round_levels
+        df['near_round_level'] = (abs(df['distance_to_round']) < 2.5).astype(int)
+        
+        # Gold often shows momentum behavior
+        df['momentum_1h'] = df['close'].pct_change(12)  # For 5-min data, 12 bars = 1 hour
+        df['momentum_4h'] = df['close'].pct_change(48)  # 4 hours
+        
+        # Trading session features (gold is sensitive to session changes)
+        if isinstance(df.index, pd.DatetimeIndex):
+            df['hour'] = df.index.hour
+            
+            # Create session indicators (gold reacts differently to different sessions)
+            df['asian_session'] = ((df['hour'] >= 0) & (df['hour'] < 8)).astype(int)
+            df['london_session'] = ((df['hour'] >= 8) & (df['hour'] < 16)).astype(int)
+            df['ny_session'] = ((df['hour'] >= 13) & (df['hour'] < 21)).astype(int)
+            df['sydney_session'] = ((df['hour'] >= 21) | (df['hour'] < 2)).astype(int)
+            
+            # Transition periods are often most volatile for gold
+            df['session_transition'] = (
+                ((df['hour'] >= 7) & (df['hour'] <= 9)) |  # Asian to London
+                ((df['hour'] >= 13) & (df['hour'] <= 15)) |  # London/NY overlap
+                ((df['hour'] >= 20) & (df['hour'] <= 22))    # NY to Sydney
+            ).astype(int)
         
         return df

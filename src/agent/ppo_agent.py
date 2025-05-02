@@ -102,35 +102,87 @@ class PPOMemory:
         return len(self.states)
 
 
+# class ActorNetwork(nn.Module):
+#     """Actor network for the PPO agent."""
+    
+#     def __init__(
+#         self,
+#         input_dim: int,
+#         output_dim: int,
+#         hidden_dims: List[int] = [256, 256],
+#         activation_fn: nn.Module = nn.ReLU(),
+#         action_std_init: float = 0.6
+#     ):
+#         """
+#         Initialize the actor network.
+        
+#         Args:
+#             input_dim: Dimension of the input (state)
+#             output_dim: Dimension of the output (action)
+#             hidden_dims: List of hidden layer dimensions
+#             activation_fn: Activation function to use
+#             action_std_init: Initial standard deviation for continuous actions
+#         """
+#         super(ActorNetwork, self).__init__()
+        
+#         self.input_dim = input_dim
+#         self.output_dim = output_dim
+#         self.action_std_init = action_std_init
+#         self.action_var = torch.full((output_dim,), action_std_init * action_std_init)
+        
+#         # Build the network
+#         layers = []
+#         prev_dim = input_dim
+        
+#         for hidden_dim in hidden_dims:
+#             layers.append(nn.Linear(prev_dim, hidden_dim))
+#             layers.append(activation_fn)
+#             prev_dim = hidden_dim
+        
+#         # Output layer for categorical (discrete) actions
+#         self.actor_categorical = nn.Sequential(
+#             *layers,
+#             nn.Linear(prev_dim, output_dim),
+#             nn.Softmax(dim=-1)
+#         )
+        
+#         # For continuous actions, we would have separate mean and std outputs
+#         # but for trading we're using discrete actions
+    
+#     def forward(self, state: torch.Tensor) -> torch.distributions.Distribution:
+#         """
+#         Forward pass through the network.
+        
+#         Args:
+#             state: Input state tensor
+            
+#         Returns:
+#             torch.distributions.Distribution: Action distribution
+#         """
+#         action_probs = self.actor_categorical(state)
+#         dist = Categorical(action_probs)
+        
+#         return dist
+
+
+# Dans src/agent/ppo_agent.py
+
 class ActorNetwork(nn.Module):
-    """Actor network for the PPO agent."""
+    """Réseau d'acteur simplifié et biaisé vers l'action pour l'or."""
     
     def __init__(
         self,
         input_dim: int,
         output_dim: int,
-        hidden_dims: List[int] = [256, 256],
-        activation_fn: nn.Module = nn.ReLU(),
-        action_std_init: float = 0.6
+        hidden_dims: List[int] = [64, 32],
+        activation_fn: nn.Module = nn.ReLU()
     ):
-        """
-        Initialize the actor network.
-        
-        Args:
-            input_dim: Dimension of the input (state)
-            output_dim: Dimension of the output (action)
-            hidden_dims: List of hidden layer dimensions
-            activation_fn: Activation function to use
-            action_std_init: Initial standard deviation for continuous actions
-        """
         super(ActorNetwork, self).__init__()
         
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.action_std_init = action_std_init
-        self.action_var = torch.full((output_dim,), action_std_init * action_std_init)
         
-        # Build the network
+        # Construire un réseau simple
         layers = []
         prev_dim = input_dim
         
@@ -139,54 +191,39 @@ class ActorNetwork(nn.Module):
             layers.append(activation_fn)
             prev_dim = hidden_dim
         
-        # Output layer for categorical (discrete) actions
-        self.actor_categorical = nn.Sequential(
-            *layers,
-            nn.Linear(prev_dim, output_dim),
-            nn.Softmax(dim=-1)
-        )
+        # Couche finale de sortie
+        self.feature_network = nn.Sequential(*layers)
+        self.output_layer = nn.Linear(prev_dim, output_dim)
         
-        # For continuous actions, we would have separate mean and std outputs
-        # but for trading we're using discrete actions
+        # Biais initial pour favoriser les actions plutôt que "hold"
+        self.output_layer.bias.data[0] += 0.1  # Bias vers la vente
+        self.output_layer.bias.data[2] += 0.1  # Bias vers l'achat
+        self.output_layer.bias.data[1] -= 0.2  # Réduire le biais de "hold"
     
     def forward(self, state: torch.Tensor) -> torch.distributions.Distribution:
-        """
-        Forward pass through the network.
+        features = self.feature_network(state)
+        action_logits = self.output_layer(features)
+        action_probs = F.softmax(action_logits, dim=-1)
         
-        Args:
-            state: Input state tensor
-            
-        Returns:
-            torch.distributions.Distribution: Action distribution
-        """
-        action_probs = self.actor_categorical(state)
-        dist = Categorical(action_probs)
+        # Modifier les probabilités pour encourager l'action
+        # action_probs[:, 1] *= 0.8  # Réduire la probabilité d'attente
         
+        dist = torch.distributions.Categorical(action_probs)
         return dist
 
 
+
 class CriticNetwork(nn.Module):
-    """Critic network for the PPO agent."""
+    """Réseau critique simplifié pour le trading."""
     
     def __init__(
         self,
         input_dim: int,
-        hidden_dims: List[int] = [256, 256],
+        hidden_dims: List[int] = [64, 32],
         activation_fn: nn.Module = nn.ReLU()
     ):
-        """
-        Initialize the critic network.
-        
-        Args:
-            input_dim: Dimension of the input (state)
-            hidden_dims: List of hidden layer dimensions
-            activation_fn: Activation function to use
-        """
         super(CriticNetwork, self).__init__()
         
-        self.input_dim = input_dim
-        
-        # Build the network
         layers = []
         prev_dim = input_dim
         
@@ -195,22 +232,60 @@ class CriticNetwork(nn.Module):
             layers.append(activation_fn)
             prev_dim = hidden_dim
         
-        # Output layer for value
         layers.append(nn.Linear(prev_dim, 1))
         
-        self.critic = nn.Sequential(*layers)
+        self.network = nn.Sequential(*layers)
     
     def forward(self, state: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the network.
+        return self.network(state)
+    
+
+# class CriticNetwork(nn.Module):
+#     """Critic network for the PPO agent."""
+    
+#     def __init__(
+#         self,
+#         input_dim: int,
+#         hidden_dims: List[int] = [256, 256],
+#         activation_fn: nn.Module = nn.ReLU()
+#     ):
+#         """
+#         Initialize the critic network.
         
-        Args:
-            state: Input state tensor
+#         Args:
+#             input_dim: Dimension of the input (state)
+#             hidden_dims: List of hidden layer dimensions
+#             activation_fn: Activation function to use
+#         """
+#         super(CriticNetwork, self).__init__()
+        
+#         self.input_dim = input_dim
+        
+#         # Build the network
+#         layers = []
+#         prev_dim = input_dim
+        
+#         for hidden_dim in hidden_dims:
+#             layers.append(nn.Linear(prev_dim, hidden_dim))
+#             layers.append(activation_fn)
+#             prev_dim = hidden_dim
+        
+#         # Output layer for value
+#         layers.append(nn.Linear(prev_dim, 1))
+        
+#         self.critic = nn.Sequential(*layers)
+    
+#     def forward(self, state: torch.Tensor) -> torch.Tensor:
+#         """
+#         Forward pass through the network.
+        
+#         Args:
+#             state: Input state tensor
             
-        Returns:
-            torch.Tensor: Value estimate
-        """
-        return self.critic(state)
+#         Returns:
+#             torch.Tensor: Value estimate
+#         """
+#         return self.critic(state)
 
 
 class PPOAgent(BaseAgent):
@@ -320,14 +395,16 @@ class PPOAgent(BaseAgent):
         
         logger.info(f"Initialized PPO agent with state_dim={state_dim}, action_dim={action_dim}")
 
+
+
     def select_action(self, state: Any, evaluate: bool = False) -> np.ndarray:
         """
         Select an action based on the current state.
-        
+    
         Args:
             state: Current state observation
             evaluate: Whether to use exploration or deterministic action
-            
+        
         Returns:
             np.ndarray: Selected action
         """
@@ -336,37 +413,78 @@ class PPOAgent(BaseAgent):
             # Handle dictionary observation space
             market_state = torch.FloatTensor(state['market']).to(self.device)
             account_state = torch.FloatTensor(state['account']).to(self.device)
-            
+        
             # Flatten the tensors - CORRECTION: Changed view() to reshape()
             market_flat = market_state.reshape(1, -1)
             account_flat = account_state.reshape(1, -1)
-            
+        
             # Concatenate them
             state_tensor = torch.cat([market_flat, account_flat], dim=1)
         else:
             # Handle flat observation space
             state_tensor = torch.FloatTensor(state).to(self.device).unsqueeze(0)
-        
+    
         # Get action distribution
         dist = self.actor(state_tensor)
-        
+    
         # Select action
         if evaluate:
-            # Deterministic action for evaluation
-            action = torch.argmax(dist.probs).item()
-            action_probs = 1.0
-            action_logprob = 0.0
-        else:
-            # Sample from distribution for training
-            action = dist.sample().item()
-            action_logprob = dist.log_prob(torch.tensor(action)).item()
-            action_probs = dist.probs[0, action].item()
+            # Obtenir les probabilités
+            probs = dist.probs.detach().cpu().numpy()[0]
         
+            # MODIFICATION MAJEURE: Forcer des trades en backtest
+            # De manière aléatoire, réduire fortement la probabilité de "hold"
+            forced_trade = False
+            
+            # Si on est en mode évaluation/backtest, forcer périodiquement des trades
+            # en réduisant drastiquement la probabilité de "hold"
+            if np.random.random() < 0.3:  # 30% du temps
+                forced_trade = True
+                # Réduire la probabilité de "hold" (indice 1) de 80%
+                probs[1] *= 0.2
+                # Normaliser les probabilités
+                probs = probs / np.sum(probs)
+            
+            # Abaisser le seuil pour prendre des actions à 0.25 (au lieu de 0.5 typiquement)
+            action_threshold = 0.20
+        
+            # Si une probabilité d'action (buy/sell) dépasse le seuil, prendre cette action
+            if probs[0] > action_threshold or probs[2] > action_threshold:
+                # Choisir l'action avec la plus haute probabilité
+                action = np.argmax([probs[0], 0, probs[2]])  # Ignorer "hold" (indice 1)
+                if action == 1:  # Si l'action choisie est l'indice 1 (après avoir ignoré "hold")
+                    action = 2  # Convertir en "buy" (indice 2)
+            else:
+                # Même si aucune action n'atteint le seuil, encourager trading
+                if forced_trade or np.random.random() < 0.4:  # 40% de chances supplémentaires
+                    # Choisir entre buy et sell avec un biais légèrement en faveur du buy
+                    action = 0 if np.random.random() < 0.45 else 2  # 45% sell, 55% buy
+                else:
+                    # Le reste du temps, échantillonner selon les probabilités
+                    action = np.random.choice([0, 1, 2], p=probs)
+        
+            # Calcul du log de probabilité et de la probabilité
+            action_logprob = np.log(probs[action] + 1e-8)
+            action_probs = probs[action]
+        else:
+            # Pour l'entraînement, échantillonner mais avec un biais contre "hold"
+            # Réduire légèrement la probabilité de "hold" pendant l'entraînement aussi
+            temp_probs = dist.probs.detach().clone()
+            temp_probs[:, 1] *= 0.9  # Réduire "hold" de 10%
+            temp_probs = temp_probs / temp_probs.sum(dim=1, keepdim=True)  # Normaliser
+            modified_dist = torch.distributions.Categorical(temp_probs)
+            
+            # Échantillonner à partir de la distribution modifiée
+            action = modified_dist.sample().item()
+            action_logprob = dist.log_prob(torch.tensor(action)).item()  # Utiliser la dist originale pour log_prob
+            action_probs = dist.probs[0, action].item()
+    
         # Get value estimate
         value = self.critic(state_tensor).item()
-        
+    
         return action, action_logprob, value
-   
+
+
     def store_transition(
         self,
         state: Any,

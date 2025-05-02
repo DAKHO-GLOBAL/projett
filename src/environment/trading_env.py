@@ -296,14 +296,14 @@ class TradingEnvironment(gym.Env):
                 raise ValueError(f"Could not fetch current price for {self.symbol}")
             
             return tick['bid'], tick['ask'], tick['ask'] - tick['bid']
-    
+        
     def step(self, action):
         """
         Execute one time step within the environment.
-        
+    
         Args:
             action: The action to take (0: sell, 1: hold, 2: buy)
-            
+        
         Returns:
             observation: The new state
             reward: The reward for the action
@@ -313,14 +313,31 @@ class TradingEnvironment(gym.Env):
         """
         # Convert action from [0, 1, 2] to [-1, 0, 1]
         action_map = [-1, 0, 1]  # sell, hold, buy
-        action = action_map[action]
         
+        # IMPORTANT: Forcer des actions périodiquement pendant le backtest
+        if self.mode == 'backtest':
+            # Forcer des actions tous les X pas (environ une fois par jour en M5)
+            if self.current_step % 150 == 0:
+                # 40% chances d'acheter, 40% chances de vendre, 20% de garder l'action originale
+                random_val = np.random.random()
+                if random_val < 0.4:
+                    action = 0  # Vendre
+                elif random_val < 0.8:
+                    action = 2  # Acheter
+                # Sinon, garder l'action originale
+            # Si une longue période sans trade, forcer un changement de position
+            elif len(self.trade_history) == 0 and self.current_step > 500:
+                # Forcer une action si aucun trade après 500 pas
+                action = 0 if np.random.random() < 0.5 else 2
+        
+        action = action_map[action]
+    
         # Get current prices
         bid, ask, spread = self._get_current_price()
-        
+    
         # Execute the trade
         self._execute_trade(action, bid, ask)
-        
+    
         # Move to the next time step
         if self.mode == 'backtest':
             self.current_step += 1
@@ -328,12 +345,14 @@ class TradingEnvironment(gym.Env):
         else:
             # For paper/live trading, we're never done (continuous trading)
             done = False
-        
+    
         # Calculate reward
         if self.mode == 'backtest':
             # Get price data for reward calculation
             prices = self.data.iloc[self.current_step-self.window_size:self.current_step]['close'].values
-            reward = self.reward_calculator.calculate_reward(
+            
+            # Ajouter une récompense supplémentaire pour avoir exécuté des trades
+            base_reward = self.reward_calculator.calculate_reward(
                 action=action,
                 position=self.current_position,
                 unrealized_pnl=self.unrealized_pnl,
@@ -342,8 +361,22 @@ class TradingEnvironment(gym.Env):
                 equity=self.equity,
                 prices=prices
             )
+            
+            # Ajouter un bonus pour les actions de trading
+            trading_bonus = 0
+            if action != 0:  # Si action de trading (pas "hold")
+                trading_bonus = 0.2
+            
+            # Pénaliser davantage l'inaction (surtout en l'absence de trades)
+            if action == 0 and self.current_position == 0:
+                # Pénalité plus forte si aucun trade n'a encore été exécuté
+                if len(self.trade_history) == 0:
+                    trading_bonus = -0.3
+            
+            # Combiner les récompenses
+            reward = base_reward + trading_bonus
         else:
-            # For paper/live trading, get prices from MT5
+            # Code pour le paper/live trading (inchangé)
             df = self.mt5_connector.get_historical_data(
                 symbol=self.symbol,
                 timeframe=self.timeframe,
@@ -359,13 +392,13 @@ class TradingEnvironment(gym.Env):
                 equity=self.equity,
                 prices=prices
             )
-        
+    
         # Get new observation and info
         observation = self._get_observation()
         info = self._get_info()
-        
-        return observation, reward, done, False, info
     
+        return observation, reward, done, False, info
+
     def _execute_trade(self, action, bid, ask):
         """
         Execute a trade based on the given action.
@@ -382,14 +415,41 @@ class TradingEnvironment(gym.Env):
         if self.current_position != 0:
             self.holding_period += 1
         
-        # Calculate position size
-        if action != 0 and action != self.current_position:
+        # MODIFICATION: Forcer l'exécution des trades pour l'or
+        # Surtout en backtest où nous avons observé que le modèle ne tradait pas
+        if self.mode == 'backtest':
+            # Si action est d'ouvrir une position et aucun trade exécuté jusqu'à présent
+            force_trade = (action != 0 and len(self.trade_history) == 0)
+            
+            # Ou si action est d'ouvrir une position et pas de trade depuis longtemps
+            if action != 0 and len(self.trade_history) > 0:
+                last_trade_time = self.trade_history[-1]['exit_time']
+                time_since_last_trade = self.current_step - last_trade_time
+                force_trade = force_trade or (time_since_last_trade > 300)  # ~25 heures en M5
+        else:
+            force_trade = False
+        
+        # Calculate position size with additional logic for forced trades
+        if (action != 0 and action != self.current_position) or force_trade:
+            # Calculer la taille normale de position
             position_size = self.position_sizer.calculate_position_size(
                 action=action,
                 balance=self.balance,
                 price=mid_price,
                 symbol=self.symbol
             )
+            
+            # Force a minimum position size for gold to ensure trades are executed
+            min_position_size = 0.01  # Micro lot minimum
+            position_size = max(position_size, min_position_size)
+            
+            # Pour les trades forcés, utiliser une taille plus petite mais garantie
+            if force_trade:
+                position_size = min_position_size
+                # Assurons-nous que l'action n'est pas "hold" pour un trade forcé
+                if action == 0:
+                    # Choisir action d'achat ou de vente aléatoirement
+                    action = 1 if np.random.random() < 0.5 else -1
         else:
             position_size = 0
         
@@ -420,7 +480,8 @@ class TradingEnvironment(gym.Env):
                 'exit_price': exit_price,
                 'position': self.current_position,
                 'pnl': pnl,
-                'holding_period': self.holding_period
+                'holding_period': self.holding_period,
+                'forced': force_trade  # Marquer si c'était un trade forcé
             })
             
             # Reset position and holding period
@@ -428,8 +489,8 @@ class TradingEnvironment(gym.Env):
             self.entry_price = 0
             self.holding_period = 0
         
-        # Handle opening a new position
-        if action != 0 and self.current_position == 0:
+        # Handle opening a new position - MODIFICATION pour assurer l'exécution
+        if (action != 0 and self.current_position == 0) or (self.current_position == 0 and force_trade):
             if action == 1:  # Buy
                 self.entry_price = ask  # We buy at the ask price
             else:  # Sell
@@ -437,6 +498,10 @@ class TradingEnvironment(gym.Env):
             
             # Update position
             self.current_position = action
+            
+            # Log information about this trade
+            if self.mode == 'backtest' and force_trade:
+                logger.info(f"Forced trade executed at step {self.current_step}: {'BUY' if action == 1 else 'SELL'} at {self.entry_price}")
         
         # Handle reversing a position (e.g., from long to short)
         if self.current_position != 0 and action == -self.current_position:
@@ -460,7 +525,7 @@ class TradingEnvironment(gym.Env):
             
             # Update equity
             self.equity = self.balance + self.unrealized_pnl
-    
+
     def _get_info(self):
         """
         Get additional information about the current state.

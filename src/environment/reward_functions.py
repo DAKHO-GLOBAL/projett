@@ -31,6 +31,7 @@ class RewardCalculator:
         self.reward_type = reward_type
         self.window_size = window_size
         self.previous_balance = None
+        self.previous_position = 0  # Pour suivre la position précédente
         
         # Map reward type to the corresponding calculation function
         self.reward_functions = {
@@ -42,7 +43,8 @@ class RewardCalculator:
             'profit_factor': self._calculate_profit_factor_reward,
             'asymmetric': self._calculate_asymmetric_reward,
             'directional': self._calculate_directional_reward,
-            'position_duration': self._calculate_position_duration_reward
+            'position_duration': self._calculate_position_duration_reward,
+            'gold_trading': self._calculate_trading_focused_reward  # Ajoutez cette ligne
         }
     
     def calculate_reward(
@@ -133,6 +135,80 @@ class RewardCalculator:
         
         return reward
     
+
+
+    def _calculate_trading_focused_reward(
+        self,
+        action: int,
+        position: int,
+        unrealized_pnl: float,
+        realized_pnl: float,
+        balance: float,
+        equity: float,
+        prices: np.ndarray
+    ) -> float:
+        """
+        Calculate reward focusing on trading actions and profitability.
+        
+        Args:
+            action: The action taken (-1: sell, 0: hold, 1: buy)
+            position: Current position (-1: short, 0: flat, 1: long)
+            unrealized_pnl: Current unrealized profit/loss
+            realized_pnl: Realized profit/loss
+            balance: Account balance
+            equity: Account equity
+            prices: Array of recent prices
+            
+        Returns:
+            float: The calculated reward
+        """
+        # Calculate basic P&L component
+        balance_change = balance - self.previous_balance
+        pnl_reward = balance_change / (self.previous_balance * 0.01) if self.previous_balance > 0 else 0
+        
+        # Calculate action incentive component
+        action_reward = 0.0
+        
+        # Incentivize taking positions
+        if action != 0:
+            if position == 0:  # New position
+                action_reward += 0.2
+            elif action == -position:  # Position reversal (more aggressive)
+                action_reward += 0.3
+        else:  # Hold action
+            if position == 0:  # Staying flat
+                action_reward -= 0.1  # Small penalty for staying out of market
+        
+        # Reward for holding profitable positions
+        if position != 0 and unrealized_pnl > 0:
+            action_reward += 0.2
+        
+        # Reward for closing profitable positions
+        if realized_pnl > 0 and action == 0 and position == 0 and hasattr(self, 'previous_position') and self.previous_position != 0:
+            action_reward += 0.5
+        
+        # Track previous position for next calculation
+        self.previous_position = position
+        
+        # Market condition awareness for gold
+        if len(prices) >= 5:
+            # Price momentum awareness
+            short_trend = prices[-1] - prices[-3]
+            if (action == 1 and short_trend > 0) or (action == -1 and short_trend < 0):
+                # Reward trend-following behavior
+                action_reward += 0.15
+            
+            # Volatility awareness - gold is volatile, reward more cautious actions during high volatility
+            recent_volatility = np.std(prices[-5:]) / np.mean(prices[-5:])
+            if recent_volatility > 0.002:  # High volatility threshold for gold
+                # Reduce risk during high volatility
+                if action == 0 and position != 0:  # Closing positions in high volatility
+                    action_reward += 0.2
+        
+        # Final reward is weighted combination
+        reward = 0.6 * pnl_reward + 0.4 * action_reward
+        
+        return reward
     def _calculate_sharpe_reward(
         self,
         action: int,

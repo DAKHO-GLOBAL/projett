@@ -10,13 +10,13 @@ position_sizing:
 # Stop loss and take profit
 stop_loss:
   type: "atr"  # Options: fixed_pips, percent, atr, support_resistance
-  atr_multiplier: 2.0  # For ATR-based stops
-  fixed_pips: 50  # For fixed pip-based stops
+  atr_multiplier: 1.5  # For ATR-based stops
+  fixed_pips: 30  # For fixed pip-based stops
   percent: 0.01  # For percentage-based stops
 
 take_profit:
   type: "risk_reward"  # Options: fixed_pips, percent, risk_reward
-  risk_reward_ratio: 2.0  # Risk-reward ratio for take profit
+  risk_reward_ratio: 1.5  # Risk-reward ratio for take profit
   fixed_pips: 100  # For fixed pip-based take profit
   percent: 0.02  # For percentage-based take profit
 

@@ -31,6 +31,13 @@ from src.utils.logger import setup_logger
 from src.utils.visualizer import Visualizer
 from src.utils.metrics import calculate_comprehensive_metrics
 
+
+# Importer la nouvelle classe de récompense
+from src.environment.custom_rewards import GoldTradingReward
+
+# Créer une instance
+gold_reward = GoldTradingReward()
+
 def load_config(config_path):
     """Load configuration from YAML file."""
     with open(config_path, 'r') as file:
@@ -158,7 +165,8 @@ def main():
             window_size=window_size,
             symbol=symbol,
             timeframe=timeframe,
-            reward_type='sharpe',  # Use same reward as training
+            reward_type='gold_trading',  # Utiliser cette chaîne comme identifiant
+            reward_calculator=gold_reward,  # Passer directement l'objet 
             features=feature_columns
         )
         
