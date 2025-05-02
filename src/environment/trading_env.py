@@ -27,7 +27,10 @@ class TradingEnvironment(gym.Env):
     """
     
     metadata = {'render.modes': ['human']}
-    
+
+
+# Mise à jour de la classe TradingEnvironment dans src/environment/trading_env.py
+
     def __init__(
         self,
         config: Dict,
@@ -41,7 +44,8 @@ class TradingEnvironment(gym.Env):
         commission: float = 0.0001,  # 1 pip commission
         mt5_connector: Optional[MT5Connector] = None,
         position_sizer: Optional[PositionSizer] = None,
-        features: Optional[List[str]] = None
+        features: Optional[List[str]] = None,
+        reward_calculator: Optional[Any] = None  # Ajout du paramètre reward_calculator
     ):
         """
         Initialize the trading environment.
@@ -59,6 +63,7 @@ class TradingEnvironment(gym.Env):
             mt5_connector: Optional MT5 connector instance
             position_sizer: Optional position sizer instance
             features: List of feature columns to include in state
+            reward_calculator: Optional custom reward calculator instance
         """
         super(TradingEnvironment, self).__init__()
         
@@ -88,7 +93,10 @@ class TradingEnvironment(gym.Env):
             self.position_sizer = position_sizer
         
         # Initialize reward calculator
-        self.reward_calculator = RewardCalculator(reward_type, window_size)
+        if reward_calculator is not None:
+            self.reward_calculator = reward_calculator
+        else:
+            self.reward_calculator = RewardCalculator(reward_type, window_size)
         
         # Set up data for backtesting
         self.data = data
@@ -107,7 +115,8 @@ class TradingEnvironment(gym.Env):
         
         # Define action and observation spaces
         self._define_spaces()
-    
+
+        
     def _define_spaces(self):
         """Define the action and observation spaces for the environment."""
         # Action space: [-1, 0, 1] for sell, hold, buy

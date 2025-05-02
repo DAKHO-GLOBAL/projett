@@ -766,3 +766,161 @@ class PPOAgent(BaseAgent):
             self.metrics = checkpoint['metrics']
         
         logger.info(f"Model loaded from {path}")
+
+
+
+# Architectures de réseaux optimisées pour le trading de l'or
+
+class GoldActorNetwork(nn.Module):
+    """Architecture de réseau d'acteur optimisée pour le trading de l'or."""
+    
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dims: List[int] = [128, 64, 32],
+        dropout_rate: float = 0.15
+    ):
+        super(GoldActorNetwork, self).__init__()
+        
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        
+        # Couche d'entrée avec normalisation par lots
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, hidden_dims[0]),
+            nn.BatchNorm1d(hidden_dims[0]),
+            nn.LeakyReLU(0.1)
+        )
+        
+        # Couches cachées
+        self.hidden_layers = nn.ModuleList()
+        
+        for i in range(len(hidden_dims) - 1):
+            self.hidden_layers.append(nn.Sequential(
+                nn.Linear(hidden_dims[i], hidden_dims[i + 1]),
+                nn.BatchNorm1d(hidden_dims[i + 1]),
+                nn.LeakyReLU(0.1),
+                nn.Dropout(dropout_rate)
+            ))
+        
+        # Couche de sortie avec biaisage pour favoriser l'action
+        self.output_layer = nn.Linear(hidden_dims[-1], output_dim)
+        
+        # Initialiser les biais pour favoriser l'action sur l'or
+        self.output_layer.bias.data[0] += 0.1  # Biais vers la vente
+        self.output_layer.bias.data[2] += 0.1  # Biais vers l'achat
+        self.output_layer.bias.data[1] -= 0.2  # Réduire le biais de "hold"
+        
+        # Initialisation des poids pour améliorer la convergence
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """Initialisation spéciale des poids pour améliorer la convergence."""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain=1.0)
+                if module.bias is not None and module != self.output_layer:
+                    module.bias.data.zero_()
+    
+    def forward(self, state: torch.Tensor) -> torch.distributions.Distribution:
+        """
+        Propagation avant à travers le réseau.
+        
+        Args:
+            state: Tensor d'état d'entrée
+            
+        Returns:
+            torch.distributions.Distribution: Distribution de probabilité d'action
+        """
+        # Traitement de l'entrée
+        x = self.input_layer(state)
+        
+        # Passage à travers les couches cachées
+        for layer in self.hidden_layers:
+            x = layer(x)
+        
+        # Couche de sortie pour obtenir les logits d'action
+        action_logits = self.output_layer(x)
+        
+        # Convertir en probabilités d'action avec softmax
+        action_probs = F.softmax(action_logits, dim=-1)
+        
+        # Modifier les probabilités pour encourager l'action sur l'or
+        # L'or a tendance à bouger significativement - décourager l'attente
+        action_probs_adjusted = action_probs.clone()
+        action_probs_adjusted[:, 1] *= 0.8  # Réduire la probabilité d'attente de 20%
+        
+        # Renormaliser
+        action_probs_adjusted = action_probs_adjusted / action_probs_adjusted.sum(dim=1, keepdim=True)
+        
+        # Créer une distribution catégorielle
+        dist = torch.distributions.Categorical(action_probs_adjusted)
+        
+        return dist
+
+
+class GoldCriticNetwork(nn.Module):
+    """Architecture de réseau critique optimisée pour le trading de l'or."""
+    
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dims: List[int] = [128, 64, 32],
+        dropout_rate: float = 0.15
+    ):
+        super(GoldCriticNetwork, self).__init__()
+        
+        # Couche d'entrée avec normalisation par lots
+        self.input_layer = nn.Sequential(
+            nn.Linear(input_dim, hidden_dims[0]),
+            nn.BatchNorm1d(hidden_dims[0]),
+            nn.LeakyReLU(0.1)
+        )
+        
+        # Couches cachées
+        self.hidden_layers = nn.ModuleList()
+        
+        for i in range(len(hidden_dims) - 1):
+            self.hidden_layers.append(nn.Sequential(
+                nn.Linear(hidden_dims[i], hidden_dims[i + 1]),
+                nn.BatchNorm1d(hidden_dims[i + 1]),
+                nn.LeakyReLU(0.1),
+                nn.Dropout(dropout_rate)
+            ))
+        
+        # Couche de sortie pour l'estimation de valeur
+        self.output_layer = nn.Linear(hidden_dims[-1], 1)
+        
+        # Initialisation des poids
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """Initialisation spéciale des poids pour améliorer la convergence."""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.orthogonal_(module.weight, gain=1.0)
+                if module.bias is not None:
+                    module.bias.data.zero_()
+    
+    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        """
+        Propagation avant à travers le réseau.
+        
+        Args:
+            state: Tensor d'état d'entrée
+            
+        Returns:
+            torch.Tensor: Estimation de la valeur d'état
+        """
+        # Traitement de l'entrée
+        x = self.input_layer(state)
+        
+        # Passage à travers les couches cachées
+        for layer in self.hidden_layers:
+            x = layer(x)
+        
+        # Couche de sortie pour obtenir l'estimation de valeur
+        value = self.output_layer(x)
+        
+        return value

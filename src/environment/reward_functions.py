@@ -209,6 +209,8 @@ class RewardCalculator:
         reward = 0.6 * pnl_reward + 0.4 * action_reward
         
         return reward
+    
+    
     def _calculate_sharpe_reward(
         self,
         action: int,

@@ -2,42 +2,88 @@
 
 
 # PPO agent configuration
+# Configuration optimisée pour le trading de l'or
+
+# PPO agent configuration
 ppo:
   # Network architecture
   policy_network:
-    type: "MlpPolicy"
-    net_arch: [64, 32]  # Réduit à une architecture plus simple
-    activation_fn: "relu"  # Changé de tanh à relu pour de meilleures performances
+    type: "GoldMlpPolicy"
+    net_arch: [128, 64, 32]
+    activation_fn: "leaky_relu"
+    dropout_rate: 0.15
   
   # Training hyperparameters
-  learning_rate: 5.0e-5  # Réduit pour une convergence plus stable
+  learning_rate: 3.0e-5  # Taux d'apprentissage réduit pour l'or
   n_steps: 2048
-  batch_size: 32
-  n_epochs: 8  # Légèrement réduit pour éviter le surapprentissage
-  gamma: 0.985
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99  # Facteur d'actualisation élevé pour mieux capturer les mouvements de l'or
   gae_lambda: 0.95
   clip_range: 0.15
   clip_range_vf: null
   normalize_advantage: true
-  ent_coef: 0.01  # Légèrement augmenté pour favoriser l'exploration
+  ent_coef: 0.02  # Coefficient d'entropie augmenté pour explorer davantage
   vf_coef: 0.5
-  max_grad_norm: 0.5
+  max_grad_norm: 0.7  # Augmenté pour permettre des mises à jour plus importantes
   
   # Training process
-  total_timesteps: 600000
-  save_freq: 10000
+  total_timesteps: 1000000  # Augmenté pour mieux capturer les patterns de l'or
+  save_freq: 50000
   log_interval: 1
-  eval_freq: 10000
-  n_eval_episodes: 10
-  tb_log_name: "PPO"
+  eval_freq: 20000
+  n_eval_episodes: 20
+  tb_log_name: "GoldPPO"
   
   # Paramètres spécifiques à l'or
   gold_trading:
-    min_position_size: 0.01  # Force au moins un micro lot
-    action_bias: true  # Active le biais vers la prise de position
-    dropout_rate: 0.15  # Ajoute du dropout pour la régularisation
-    early_stopping_patience: 5  # Arrêt anticipé après 5 évaluations sans amélioration
+    min_position_size: 0.01
+    action_bias: true
+    dropout_rate: 0.15
+    early_stopping_patience: 10
+    use_trend_features: true
+    price_normalization: "adaptive"  # Normalisation adaptative pour l'or très volatile
+    reward_shaping: "asymmetric"  # Forme de récompense asymétrique - pénalise plus les pertes
 
+# Position sizing parameters
+position_sizing:
+  type: "percent_risk"
+  risk_per_trade: 0.015  # 1.5% risque par trade - légèrement augmenté pour l'or
+  max_risk_per_day: 0.05
+  max_positions: 3  # Moins de positions simultanées pour l'or
+  
+# Stop loss configuration
+stop_loss:
+  type: "atr"  # ATR pour l'or car sa volatilité varie beaucoup
+  atr_multiplier: 1.2  # Réduit car l'or peut être volatile
+  fixed_pips: 100  # En cas de repli sur fixed_pips
+
+# Take profit configuration  
+take_profit:
+  type: "risk_reward"
+  risk_reward_ratio: 1.7  # Augmenté pour l'or
+  fixed_pips: 200
+
+# Trade management spécifique à l'or
+trade_management:
+  use_trailing_stop: true
+  trailing_activation: 0.4  # Activé plus tôt (40% du TP)
+  partial_exits: true
+  partial_exit_levels: [0.3, 0.6, 0.8]  # Trois niveaux de sortie partielle
+  partial_exit_amounts: [0.3, 0.3, 0.2]  # Sortir 80% au total, garder 20% jusqu'au TP
+
+# Préférences de session de trading pour l'or
+trading_hours:
+  enabled: true
+  # L'or se comporte mieux pendant certaines sessions
+  start_time: "08:00"  # Début de la session européenne
+  end_time: "18:00"    # Fin de la session américaine
+  trade_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+  # Fenêtres spécifiques de haute volatilité pour l'or
+  high_volatility_windows: [
+    {"start": "08:00", "end": "10:00"},  # Ouverture européenne
+    {"start": "13:30", "end": "16:00"}   # Session américaine
+  ]
 # SAC agent configuration
 sac:
   policy_network:

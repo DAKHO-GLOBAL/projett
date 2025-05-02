@@ -31,12 +31,13 @@ class FeatureGenerator:
         
         # Define feature groups with default parameters
         self.feature_groups = {
-            'trend': True,
-            'momentum': True,
-            'volatility': True,
-            'volume': True,
-            'custom': True,
-            'custum_gold':True,
+            'trend': True,      # Garde les indicateurs de tendance (essentiels)
+            'momentum': True,   # Garde les indicateurs de momentum (très importants pour l'or)
+            'volatility': True, # Garde les indicateurs de volatilité (cruciaux pour l'or)
+            'volume': False,    # Désactive - souvent bruité pour l'or
+            'custom': False,    # Désactive - peut ajouter du bruit
+            'custom_gold': False, # Active les caractéristiques spécifiques à l'or
+            'gold_best': True   # Active uniquement les meilleures caractéristiques pour l'or
         }
         
         # Update feature groups from config if provided
@@ -78,6 +79,8 @@ class FeatureGenerator:
                 df = self.add_custom_features(df)
             elif group == 'custum_gold':
                 df = self.add_gold_specific_features(df)
+            elif group =='gold_best':
+                df=self.add_enhanced_gold_features(df)
         
         # Remove rows with NaN values created by indicators that need historical data
         df_cleaned = df.dropna()
@@ -482,5 +485,217 @@ class FeatureGenerator:
                 ((df['hour'] >= 13) & (df['hour'] <= 15)) |  # London/NY overlap
                 ((df['hour'] >= 20) & (df['hour'] <= 22))    # NY to Sydney
             ).astype(int)
+        
+        return df
+    
+
+    def add_enhanced_gold_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Ajoute des caractéristiques avancées spécifiques à l'or au DataFrame.
+        
+        Args:
+            df: DataFrame avec données OHLCV
+            
+        Returns:
+            pd.DataFrame: DataFrame avec caractéristiques avancées pour l'or
+        """
+        # 1. Caractéristiques de support et résistance psychologiques
+        # L'or est particulièrement sensible aux niveaux psychologiques (1800, 1900, 2000)
+        if 'close' in df.columns:
+            # Niveaux psychologiques (multiples de 50 et 100 $)
+            round_level_100 = np.round(df['close'] / 100) * 100
+            round_level_50 = np.round(df['close'] / 50) * 50
+            
+            # Distance aux niveaux psychologiques
+            df['dist_to_psych_100'] = (df['close'] - round_level_100) / df['close']
+            df['dist_to_psych_50'] = (df['close'] - round_level_50) / df['close']
+            
+            # Indicateur de proximité à un niveau psychologique important
+            df['near_psych_level'] = (
+                (abs(df['dist_to_psych_100']) < 0.005) | 
+                (abs(df['dist_to_psych_50']) < 0.0025)
+            ).astype(int)
+            
+            # Franchissement d'un niveau psychologique
+            df['cross_psych_100'] = (
+                (df['close'] > round_level_100) & 
+                (df['close'].shift(1) < round_level_100.shift(1))
+            ).astype(int) - (
+                (df['close'] < round_level_100) & 
+                (df['close'].shift(1) > round_level_100.shift(1))
+            ).astype(int)
+        
+        # 2. Caractéristiques de volume et de session
+        if isinstance(df.index, pd.DatetimeIndex):
+            # L'or a des comportements différents selon les sessions
+            df['hour'] = df.index.hour
+            
+            # Sessions de marché importantes pour l'or
+            df['asian_session'] = ((df['hour'] >= 0) & (df['hour'] < 8)).astype(int)
+            df['london_session'] = ((df['hour'] >= 8) & (df['hour'] < 16)).astype(int)
+            df['ny_session'] = ((df['hour'] >= 13) & (df['hour'] < 21)).astype(int)
+            
+            # Périodes de transition - particulièrement importantes pour l'or
+            df['session_transition'] = (
+                ((df['hour'] == 8) | (df['hour'] == 9)) |  # Asie-Londres
+                ((df['hour'] == 13) | (df['hour'] == 14)) |  # Londres-NY
+                ((df['hour'] == 21) | (df['hour'] == 22))  # NY-Asie
+            ).astype(int)
+            
+            # Jours de la semaine - l'or a des comportements différents
+            df['day_of_week'] = df.index.dayofweek
+            
+            # Vendredi après-midi - souvent des mouvements de clôture de position
+            df['friday_close'] = (
+                (df['day_of_week'] == 4) & 
+                (df['hour'] >= 15) & 
+                (df['hour'] <= 21)
+            ).astype(int)
+            
+            # Premier jour du mois - souvent des rapports économiques importants
+            df['first_day_of_month'] = (df.index.day == 1).astype(int)
+            
+            # Fenêtre NFP (Non-Farm Payroll) - vendredi de la première semaine du mois
+            df['nfp_window'] = (
+                (df.index.day <= 7) & 
+                (df.index.day >= 1) & 
+                (df['day_of_week'] == 4)
+            ).astype(int)
+        
+        # 3. Caractéristiques de momentum et de tendance
+        if 'close' in df.columns:
+            # L'or présente souvent un momentum fort
+            df['gold_momentum_1h'] = df['close'].pct_change(12)  # Pour 5-min
+            df['gold_momentum_4h'] = df['close'].pct_change(48)
+            df['gold_momentum_1d'] = df['close'].pct_change(288)
+            
+            # Indicateurs de force de momentum
+            df['momentum_acceleration'] = df['gold_momentum_1h'] - df['gold_momentum_1h'].shift(12)
+            
+            # Divergence de momentum (prix vs. RSI)
+            if 'rsi_14' in df.columns:
+                df['price_higher'] = (df['close'] > df['close'].shift(24)).astype(int)
+                df['rsi_higher'] = (df['rsi_14'] > df['rsi_14'].shift(24)).astype(int)
+                df['rsi_divergence'] = ((df['price_higher'] == 1) & (df['rsi_higher'] == 0)).astype(int) - \
+                                    ((df['price_higher'] == 0) & (df['rsi_higher'] == 1)).astype(int)
+        
+        # 4. Caractéristiques de volatilité spécifiques à l'or
+        # L'or est connu pour sa volatilité variable selon les périodes
+        if all(col in df.columns for col in ['high', 'low', 'close']):
+            # Calculer la volatilité à différentes périodes
+            df['daily_range'] = (df['high'] - df['low']) / df['close'] * 100  # en pourcentage
+            df['daily_range_ma10'] = df['daily_range'].rolling(window=10).mean()
+            df['daily_range_ma30'] = df['daily_range'].rolling(window=30).mean()
+            
+            # Ratio de volatilité (comparaison court terme vs moyen terme)
+            df['volatility_ratio'] = df['daily_range_ma10'] / df['daily_range_ma30']
+            
+            # Contraction de range (signal potentiel de breakout imminent)
+            df['range_contraction'] = (
+                (df['daily_range'] < df['daily_range'].shift(1)) & 
+                (df['daily_range'].shift(1) < df['daily_range'].shift(2)) & 
+                (df['daily_range'].shift(2) < df['daily_range'].shift(3))
+            ).astype(int)
+            
+            # Expansion de range (souvent après une contraction)
+            df['range_expansion'] = (
+                (df['daily_range'] > df['daily_range'].shift(1) * 1.5)
+            ).astype(int)
+            
+            # Indicateur de "quiet gold" - périodes de faible volatilité
+            df['quiet_gold'] = (df['daily_range'] < df['daily_range_ma30'] * 0.6).astype(int)
+        
+        # 5. Indicateurs de Sentiment et Flux
+        if 'volume' in df.columns or 'tick_volume' in df.columns:
+            # Utiliser le volume disponible
+            vol_col = 'volume' if 'volume' in df.columns else 'tick_volume'
+            
+            # Différence de volume (variation par rapport à la moyenne)
+            df['volume_ratio'] = df[vol_col] / df[vol_col].rolling(20).mean()
+            
+            # Volume anormal (pics de volume - souvent associés à des mouvements importants de l'or)
+            df['abnormal_volume'] = (df['volume_ratio'] > 2.0).astype(int)
+            
+            # Volume cumulatif directionnel (accumulation ou distribution)
+            df['directional_volume'] = df[vol_col] * np.sign(df['close'] - df['close'].shift(1))
+            df['cumulative_volume'] = df['directional_volume'].rolling(window=20).sum()
+            
+            # Intensité d'achat/vente
+            if all(col in df.columns for col in ['high', 'low', 'open', 'close']):
+                # Intensité d'achat: (close - low) / (high - low)
+                # Intensité de vente: (high - close) / (high - low)
+                range_hl = df['high'] - df['low']
+                df['buying_intensity'] = (df['close'] - df['low']) / range_hl
+                df['selling_intensity'] = (df['high'] - df['close']) / range_hl
+                
+                # Pression d'achat/vente sur plusieurs périodes
+                df['buying_pressure'] = df['buying_intensity'].rolling(10).mean()
+                df['selling_pressure'] = df['selling_intensity'].rolling(10).mean()
+        
+        # 6. Caractéristiques de cassure (breakout) spécifiques à l'or
+        if all(col in df.columns for col in ['high', 'low', 'close']):
+            # Canal de prix (high et low sur 20 périodes)
+            df['channel_high_20'] = df['high'].rolling(20).max()
+            df['channel_low_20'] = df['low'].rolling(20).min()
+            df['channel_width'] = (df['channel_high_20'] - df['channel_low_20']) / df['close'] * 100
+            
+            # Détection de cassure de canal
+            df['breakout_up'] = (df['close'] > df['channel_high_20'].shift(1)).astype(int)
+            df['breakout_down'] = (df['close'] < df['channel_low_20'].shift(1)).astype(int)
+            
+            # Force de la cassure
+            df['breakout_strength'] = (
+                (df['close'] - df['channel_high_20'].shift(1)) / df['channel_high_20'].shift(1) * 100
+            ) * df['breakout_up'] + (
+                (df['channel_low_20'].shift(1) - df['close']) / df['channel_low_20'].shift(1) * 100
+            ) * df['breakout_down']
+        
+        # 7. Caractéristiques spécifiques aux réactions aux nouvelles économiques
+        # Les réactions de l'or aux nouvelles sont souvent différentes des autres actifs
+        if 'close' in df.columns:
+            # Volatilité diurne vs nocturne
+            if isinstance(df.index, pd.DatetimeIndex):
+                # Période active du marché (8h-20h UTC)
+                df['active_market_hours'] = ((df['hour'] >= 8) & (df['hour'] < 20)).astype(int)
+                
+                # Calculer la volatilité en périodes actives vs inactives
+                df['active_volatility'] = df['close'].pct_change().abs() * df['active_market_hours']
+                df['inactive_volatility'] = df['close'].pct_change().abs() * (1 - df['active_market_hours'])
+                
+                # Moyennes mobiles de volatilité
+                df['active_vol_ma'] = df['active_volatility'].rolling(48).mean() * 100  # Convertir en pourcentage
+                df['inactive_vol_ma'] = df['inactive_volatility'].rolling(48).mean() * 100
+                
+                # Ratio de volatilité (actif/inactif)
+                df['vol_ratio_active_inactive'] = df['active_vol_ma'] / df['inactive_vol_ma'].replace(0, np.nan)
+            
+            # Réactions de retour à la moyenne (caractéristique de l'or)
+            # L'or a tendance à revenir à la moyenne après des mouvements extrêmes
+            df['deviation_from_ma20'] = (df['close'] - df['close'].rolling(20).mean()) / df['close'].rolling(20).mean() * 100
+            df['extreme_deviation'] = (abs(df['deviation_from_ma20']) > 2.0).astype(int)
+            
+            # Indicateur de retour probable à la moyenne
+            df['mean_reversion_signal'] = (
+                (df['deviation_from_ma20'] > 2.0) |  # Fortement suracheté
+                (df['deviation_from_ma20'] < -2.0)   # Fortement survendu
+            ).astype(int)
+        
+        # 8. Indicateurs de corrélation
+        # L'or a des corrélations importantes avec d'autres actifs (USD, taux, etc.)
+        # Ici, nous utilisons des approximations puisque nous n'avons pas les données externes
+        if isinstance(df.index, pd.DatetimeIndex) and 'close' in df.columns:
+            # Proxy d'inversion de tendance du dollar (l'or monte souvent quand le dollar baisse)
+            # Simuler par l'inversion de tendance de l'or lui-même
+            df['usd_proxy_trend'] = -1 * np.sign(df['close'].pct_change(24).rolling(12).mean())
+            
+            # Proxy d'incertitude du marché (l'or monte souvent en période d'incertitude)
+            # Simuler par la volatilité de l'or
+            if 'atr_14' in df.columns:
+                df['market_uncertainty_proxy'] = df['atr_14'] / df['atr_14'].rolling(60).mean()
+                df['high_uncertainty'] = (df['market_uncertainty_proxy'] > 1.3).astype(int)
+        
+        # Supprimer les lignes avec des NaN introduits par les calculs
+        # df = df.dropna()
+        # Ne pas supprimer les NaN ici, laissez cette responsabilité à l'appelant
         
         return df
